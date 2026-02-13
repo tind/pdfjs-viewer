@@ -1,0 +1,8 @@
+*
+!/build
+!/build/**
+!/web
+!/web/**
+!/LICENSE
+!/package.json
+!/package-lock.json

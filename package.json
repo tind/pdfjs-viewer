@@ -1,6 +1,10 @@
 {
   "name": "tind-pdfjs",
   "version": "5.4.624",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tind/pdfjs-viewer"
+  },
   "license": "Apache-2.0",
   "devDependencies": {
     "gulp": "^5.0.1",

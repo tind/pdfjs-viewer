@@ -1,5 +1,5 @@
 {
-  "name": "tind-pdfjs",
+  "name": "@tind/pdfjs-viewer",
   "version": "5.4.624",
   "repository": {
     "type": "git",

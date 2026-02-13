@@ -1,4 +1,4 @@
-document.addEventListener("webviewerloaded", (evt) => {
+function patchPDFViewerApplicationOpen() {
   const win = evt.detail?.source || window;
   const app = win.PDFViewerApplication;
   if (!app) {
@@ -15,4 +15,6 @@ document.addEventListener("webviewerloaded", (evt) => {
 
   const originalOpen = app.open.bind(app);
   app.open = (args) => originalOpen({ ...args, rangeChunkSize, disableStream });
-});
+}
+
+document.addEventListener("webviewerloaded", patchPDFViewerApplicationOpen);

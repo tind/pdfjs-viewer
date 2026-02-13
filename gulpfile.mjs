@@ -133,6 +133,10 @@ export function transformViewer() {
       new Transform({
         objectMode: true,
         transform(file, _encoding, callback) {
+          if (file.isDirectory()) {
+            callback();
+            return;
+          }
           if (file.isNull()) {
             callback(null, file);
             return;
@@ -143,14 +147,18 @@ export function transformViewer() {
           }
 
           const { window } = new JSDOM(file.contents.toString("utf8"));
-          const scriptElement = window.document.createElement("script");
-          scriptElement.src = "override-pdf-viewer-application-open.js";
+          const overrideScriptElement = window.document.createElement("script");
+          overrideScriptElement.src = "override-pdf-viewer-application-open.js";
+          const registerDownloadScriptElement =
+            window.document.createElement("script");
+          registerDownloadScriptElement.src = "only-register-download.js";
 
           const title = window.document.head.querySelector("title");
           if (title) {
-            title.after(scriptElement);
+            title.after(overrideScriptElement);
+            title.after(registerDownloadScriptElement);
           } else {
-            window.document.head.append(scriptElement);
+            window.document.head.append(overrideScriptElement);
           }
 
           this.push(
@@ -206,54 +214,26 @@ export function transformViewer() {
     .pipe(dest(join(distDirectory, "web")));
 }
 
-export function copyProjectFilesIntoDist() {
-  return src(
-    [
-      join(import.meta.dirname, "src/override-pdf-viewer-application-open.js"),
-      join(import.meta.dirname, "src/.npmignore"),
-      join(import.meta.dirname, "package.json"),
-    ],
-    {
-      base: import.meta.dirname,
-      dot: true,
-    },
-  )
-    .pipe(
-      new Transform({
-        objectMode: true,
-        transform(file, _encoding, callback) {
-          if (file.isNull()) {
-            callback(null, file);
-            return;
-          }
-          if (file.isStream()) {
-            callback(new Error("Streaming Vinyl files are not supported."));
-            return;
-          }
+export function copySrcFilesIntoDist() {
+  return src(["**/*", "**/.*"], {
+    cwd: join(import.meta.dirname, "src"),
+    base: join(import.meta.dirname, "src"),
+    dot: true,
+    nodir: true,
+  }).pipe(dest(distDirectory));
+}
 
-          const relativePath = file.relative.replaceAll("\\", "/");
-          if (relativePath === "src/override-pdf-viewer-application-open.js") {
-            file.path = join(file.base, "web/override-pdf-viewer-application-open.js");
-          } else if (relativePath === "src/.npmignore") {
-            file.path = join(file.base, ".npmignore");
-          } else if (relativePath === "package.json") {
-            const packageJson = JSON.parse(file.contents.toString("utf8"));
-            delete packageJson.devDependencies;
-            file.contents = Buffer.from(
-              `${JSON.stringify(packageJson, null, 2)}\n`,
-              "utf8",
-            );
-            file.path = join(file.base, "package.json");
-          } else {
-            callback(new Error(`Unexpected dist source file: ${relativePath}`));
-            return;
-          }
+export function copyPackageJsonIntoDist() {
+  return src(join(import.meta.dirname, "package.json"), {
+    base: import.meta.dirname,
+  }).pipe(dest(distDirectory));
+}
 
-          callback(null, file);
-        },
-      }),
-    )
-    .pipe(dest(distDirectory));
+function removeDevDependenciesFromDistPackageJson() {
+  return spawn("npm", ["pkg", "delete", "devDependencies"], {
+    cwd: distDirectory,
+    stdio: "inherit",
+  });
 }
 
 export function packageAsset() {
@@ -274,6 +254,10 @@ export const completeBuild = series(
   build,
   parallel(
     transformViewer,
-    series(copyProjectFilesIntoDist, createPackageLockInDist),
+    series(
+      parallel(copySrcFilesIntoDist, copyPackageJsonIntoDist),
+      removeDevDependenciesFromDistPackageJson,
+      createPackageLockInDist,
+    ),
   ),
 );

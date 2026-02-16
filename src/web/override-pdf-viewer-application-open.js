@@ -6,7 +6,7 @@ function patchPDFViewerApplicationOpen(evt) {
   }
 
   const params = new URLSearchParams(win.location.search);
-  const rangeChunkSize = Number(params.get("rangeChunkSize"));
+  const rangeChunkSize = Number(params.get("chunksize"));
   if (!Number.isInteger(rangeChunkSize) || rangeChunkSize <= 0) {
     return;
   }

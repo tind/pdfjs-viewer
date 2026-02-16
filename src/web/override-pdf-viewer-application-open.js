@@ -1,5 +1,5 @@
-function patchPDFViewerApplicationOpen() {
-  const win = evt.detail?.source || window;
+function patchPDFViewerApplicationOpen(evt) {
+  const win = evt?.detail?.source || window;
   const app = win.PDFViewerApplication;
   if (!app) {
     return;

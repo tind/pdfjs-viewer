@@ -6,6 +6,7 @@ This is a PDF.js viewer for TIND. It is based on the PDF.js viewer provided by M
 
 - Registering download stats by intercepting the download button click and sending a `register_download=1` request before file retrieval (`src/web/only-register-download.js`).
 - Configurable chunk size by reading `rangeChunkSize` from the viewer URL and injecting it into `PDFViewerApplication.open` (`src/web/override-pdf-viewer-application-open.js`).
+- Sidebar hidden by default by forcing `sidebarViewOnLoad` to the closed state during viewer startup (`src/web/override-pdf-viewer-application-open.js`).
 - View-only HTML variant by generating `pdf_viewer_view_only.html` and hiding print/download controls during the viewer transform step (`gulpfile.mjs`).
 
 ## Building

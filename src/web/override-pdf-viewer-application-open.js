@@ -1,6 +1,5 @@
 const OPEN_PATCHED_FLAG = Symbol("tindPdfViewerApplicationOpenPatched");
 const registeredDocuments = new WeakSet();
-const SIDEBAR_VIEW_NONE = 0;
 
 function patchPDFViewerApplicationOpen(evt) {
   const sourceWindow = evt?.detail?.source;
@@ -15,24 +14,9 @@ function patchPDFViewerApplicationOpen(evt) {
     return;
   }
 
-  const originalSetInitialView = app.setInitialView?.bind(app);
-  if (originalSetInitialView) {
-    // Force the initial sidebar state to "closed" after all startup state
-    // (preferences/history/document metadata) has been resolved.
-    app.setInitialView = (storedHash, options = {}) =>
-      originalSetInitialView(storedHash, {
-        ...options,
-        sidebarView: SIDEBAR_VIEW_NONE,
-      });
-  } else {
-    // Fallback for unexpected viewer versions without `setInitialView`.
-    win.PDFViewerApplicationOptions?.set("sidebarViewOnLoad", SIDEBAR_VIEW_NONE);
-  }
-
   const params = new URLSearchParams(win.location.search);
   const rangeChunkSize = Number(params.get("chunksize"));
   if (!Number.isInteger(rangeChunkSize) || rangeChunkSize <= 0) {
-    app[OPEN_PATCHED_FLAG] = true;
     return;
   }
 

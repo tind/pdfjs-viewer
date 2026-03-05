@@ -11,23 +11,13 @@ function patchPDFViewerApplicationOpen(evt) {
 
   const win = sourceWindow || window;
   const app = win.PDFViewerApplication;
-  if (!app || app[OPEN_PATCHED_FLAG]) {
+  const appOptions = win.PDFViewerApplicationOptions;
+  if (!app || !appOptions || app[OPEN_PATCHED_FLAG]) {
     return;
   }
 
-  const originalSetInitialView = app.setInitialView?.bind(app);
-  if (originalSetInitialView) {
-    // Force the initial sidebar state to "closed" after all startup state
-    // (preferences/history/document metadata) has been resolved.
-    app.setInitialView = (storedHash, options = {}) =>
-      originalSetInitialView(storedHash, {
-        ...options,
-        sidebarView: SIDEBAR_VIEW_NONE,
-      });
-  } else {
-    // Fallback for unexpected viewer versions without `setInitialView`.
-    win.PDFViewerApplicationOptions?.set("sidebarViewOnLoad", SIDEBAR_VIEW_NONE);
-  }
+  // Force the initial sidebar state to "closed" and ignore stored view history.
+  appOptions.set("sidebarViewOnLoad", SIDEBAR_VIEW_NONE);
 
   const params = new URLSearchParams(win.location.search);
   const rangeChunkSize = Number(params.get("chunksize"));

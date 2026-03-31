@@ -185,13 +185,13 @@ export function transformViewer() {
             secondaryDownload.style = "display:none !important";
           }
 
-          const print = window.document.getElementById("print");
+          const print = window.document.getElementById("printButton");
 
           if (print) {
             print.style = "display:none !important";
           }
 
-          const download = window.document.getElementById("download");
+          const download = window.document.getElementById("downloadButton");
 
           if (download) {
             download.style = "display:none !important";

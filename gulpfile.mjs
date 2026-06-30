@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { PassThrough, Readable, Transform } from "node:stream";
@@ -169,7 +169,8 @@ export function transformViewer() {
             return;
           }
 
-          const { window } = new JSDOM(file.contents.toString("utf8"));
+          const dom = new JSDOM(file.contents.toString("utf8"));
+          const { window } = dom;
           const { document } = window;
 
           // Inject the TIND override scripts. They must load before PDF.js
@@ -201,7 +202,7 @@ export function transformViewer() {
           this.push(
             Object.assign(file.clone({ contents: false }), {
               path: join(file.base, "pdf_viewer.html"),
-              contents: Buffer.from(document.documentElement.outerHTML, "utf8"),
+              contents: Buffer.from(dom.serialize(), "utf8"),
             }),
           );
 
@@ -237,7 +238,7 @@ export function transformViewer() {
           this.push(
             Object.assign(file.clone({ contents: false }), {
               path: join(file.base, "pdf_viewer_view_only.html"),
-              contents: Buffer.from(document.documentElement.outerHTML, "utf8"),
+              contents: Buffer.from(dom.serialize(), "utf8"),
             }),
           );
 
@@ -328,11 +329,38 @@ export async function verifyViewerHooks() {
   }
 }
 
+// Raise PDF.js's rendered-page cache so revisiting an already-read page is
+// instant instead of blanking and re-rendering (its default keeps only 10).
+// PDF.js exposes no option for this, so rewrite the constant in the built
+// (unminified) viewer.mjs, failing loudly if a future version changes it.
+// Bounded to limit canvas memory on high-DPI scanned pages.
+const VIEWER_CACHE_SIZE = 30;
+
+export async function patchViewerCacheSize() {
+  const file = join(distDirectory, "web/viewer.mjs");
+  const find = "const DEFAULT_CACHE_SIZE = 10;";
+  const replace = `const DEFAULT_CACHE_SIZE = ${VIEWER_CACHE_SIZE};`;
+  const contents = await readFile(file, "utf8");
+  if (contents.includes(replace) && !contents.includes(find)) {
+    return; // already patched (e.g. re-running the build without a re-download)
+  }
+  const occurrences = contents.split(find).length - 1;
+  if (occurrences !== 1) {
+    throw new Error(
+      `Expected exactly one ${JSON.stringify(find)} in ${file}, found ` +
+        `${occurrences}. PDF.js ${pdfJsVersion} changed the rendered-page cache ` +
+        `constant; update patchViewerCacheSize in gulpfile.mjs for this version.`,
+    );
+  }
+  await writeFile(file, contents.replace(find, replace));
+}
+
 export const completeBuild = series(
   build,
   verifyViewerHooks,
   parallel(
     transformViewer,
+    patchViewerCacheSize,
     series(
       parallel(copySrcFilesIntoDist, copyPackageJsonIntoDist),
       removeDevDependenciesFromDistPackageJson,

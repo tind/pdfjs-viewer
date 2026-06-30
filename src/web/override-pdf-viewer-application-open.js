@@ -15,15 +15,29 @@ function patchPDFViewerApplicationOpen(evt) {
   }
 
   const params = new URLSearchParams(win.location.search);
-  const rangeChunkSize = Number(params.get("chunksize"));
-  if (!Number.isInteger(rangeChunkSize) || rangeChunkSize <= 0) {
+  const requestedChunkSize = Number(params.get("chunksize"));
+  if (!Number.isInteger(requestedChunkSize) || requestedChunkSize <= 0) {
     return;
   }
 
+  // Cap the range chunk size. The backend currently requests 8MB chunks, but on
+  // a non-linearized PDF every scattered object read during first paint then
+  // drags a full 8MB — slow on poor connections. A smaller cap keeps first-paint
+  // fetches close to the bytes the visible page actually needs.
+  const MAX_RANGE_CHUNK_SIZE = 512 * 1024;
+  const rangeChunkSize = Math.min(requestedChunkSize, MAX_RANGE_CHUNK_SIZE);
+
+  // Fetch on demand only: streaming the whole file is disabled (disableStream),
+  // and so is PDF.js's background "fetch every remaining chunk" sweep
+  // (disableAutoFetch). Together they make the viewer spend the connection on
+  // the page being read instead of pulling the entire document up front, so the
+  // first page becomes readable as soon as possible — the priority on slow links.
   const disableStream = true;
+  const disableAutoFetch = true;
 
   const originalOpen = app.open.bind(app);
-  app.open = (args) => originalOpen({ ...args, rangeChunkSize, disableStream });
+  app.open = (args) =>
+    originalOpen({ ...args, rangeChunkSize, disableStream, disableAutoFetch });
   app[OPEN_PATCHED_FLAG] = true;
 }
 

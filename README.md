@@ -5,7 +5,8 @@ This is a PDF.js viewer for TIND. It is based on the PDF.js viewer provided by M
 ## Local PDF viewer changes
 
 - Registering download stats by intercepting the download button click and sending a `register_download=1` request before file retrieval (`src/web/only-register-download.js`).
-- Configurable chunk size by reading `rangeChunkSize` from the viewer URL and injecting it into `PDFViewerApplication.open` (`src/web/override-pdf-viewer-application-open.js`).
+- Tuned fetching for the fastest possible first page on slow connections: the override injects `disableStream: true`, `disableAutoFetch: true`, and a capped `rangeChunkSize` (read from the viewer URL's `chunksize` param and limited to a small range chunk) into `PDFViewerApplication.open` (`src/web/override-pdf-viewer-application-open.js`).
+- Larger rendered-page cache so returning to an already-read page does not blank and re-render, by raising PDF.js's `DEFAULT_CACHE_SIZE` in the built `viewer.mjs` (`patchViewerCacheSize` in `gulpfile.mjs`).
 - View-only HTML variant by generating `pdf_viewer_view_only.html` and hiding print/download controls during the viewer transform step (`gulpfile.mjs`).
 
 These overlays depend on specific PDF.js hook points (the `webviewerloaded` event, the `PDFViewerApplication.open` options, and the print/download control element IDs). The build verifies those hook points still exist (`verifyViewerHooks` and the `transformViewer` checks in `gulpfile.mjs`) and **fails loudly** if a PDF.js upgrade renames or removes one, so a broken overlay surfaces at build time instead of silently in the browser.

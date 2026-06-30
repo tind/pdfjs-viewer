@@ -8,6 +8,8 @@ This is a PDF.js viewer for TIND. It is based on the PDF.js viewer provided by M
 - Configurable chunk size by reading `rangeChunkSize` from the viewer URL and injecting it into `PDFViewerApplication.open` (`src/web/override-pdf-viewer-application-open.js`).
 - View-only HTML variant by generating `pdf_viewer_view_only.html` and hiding print/download controls during the viewer transform step (`gulpfile.mjs`).
 
+These overlays depend on specific PDF.js hook points (the `webviewerloaded` event, the `PDFViewerApplication.open` options, and the print/download control element IDs). The build verifies those hook points still exist (`verifyViewerHooks` and the `transformViewer` checks in `gulpfile.mjs`) and **fails loudly** if a PDF.js upgrade renames or removes one, so a broken overlay surfaces at build time instead of silently in the browser.
+
 ## Building
 
 1. Install the dependencies
@@ -47,7 +49,9 @@ The output is available in the `build` directory with this structure:
 
 ## Versioning
 
-Keep the upstream PDF.js version as the base and use a `-tind.N` suffix for publish increments.
+The `version` field in `package.json` is the **single source of truth** for the upstream PDF.js version: it is formatted as `<pdfJsVersion>-tind.<revision>`, and `gulpfile.mjs` derives the PDF.js download URL from the `<pdfJsVersion>` part. To upgrade the base, change only `package.json` (e.g. via `npm version`, below) — do **not** hardcode the version anywhere else.
+
+Use the `-tind.N` suffix for publish increments and reset it to `.0` when the upstream base changes.
 
 - First publish for upstream `5.4.624`: `5.4.624-tind.0`
 - Next publish: `5.4.624-tind.1`

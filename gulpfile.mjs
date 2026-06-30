@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { PassThrough, Readable, Transform } from "node:stream";
@@ -8,8 +10,29 @@ import { JSDOM } from "jsdom";
 import * as tar from "tar";
 import Vinyl from "vinyl";
 
-const pdfJsDownloadUrl =
-  "https://github.com/mozilla/pdf.js/archive/refs/tags/v5.4.624.tar.gz";
+// Single source of truth for the upstream PDF.js version: package.json's
+// "version" field, formatted as "<pdfJsVersion>-tind.<revision>" (e.g.
+// "6.1.200-tind.0" tracks PDF.js v6.1.200). The download URL is derived from
+// it, so the published package and the bundled PDF.js can never drift apart —
+// bumping the base is a single edit to package.json's version.
+const packageJson = JSON.parse(
+  readFileSync(join(import.meta.dirname, "package.json"), "utf8"),
+);
+
+function resolvePdfJsVersion() {
+  const match = /^(\d+\.\d+\.\d+)-tind\.\d+$/.exec(packageJson.version ?? "");
+  if (!match) {
+    throw new Error(
+      `package.json "version" must be "<pdfJsVersion>-tind.<revision>" ` +
+        `(e.g. "6.1.200-tind.0"), but is "${packageJson.version}". ` +
+        `The upstream PDF.js version is derived from it.`,
+    );
+  }
+  return match[1];
+}
+
+const pdfJsVersion = resolvePdfJsVersion();
+const pdfJsDownloadUrl = `https://github.com/mozilla/pdf.js/archive/refs/tags/v${pdfJsVersion}.tar.gz`;
 const buildDirectory = join(import.meta.dirname, "build");
 const pdfJsModuleDirectory = join(buildDirectory, "pdf.js");
 const distDirectory = join(buildDirectory, "dist");
@@ -147,63 +170,74 @@ export function transformViewer() {
           }
 
           const { window } = new JSDOM(file.contents.toString("utf8"));
-          const overrideScriptElement = window.document.createElement("script");
-          overrideScriptElement.src = "override-pdf-viewer-application-open.js";
-          const registerDownloadScriptElement =
-            window.document.createElement("script");
-          registerDownloadScriptElement.src = "only-register-download.js";
+          const { document } = window;
 
-          const title = window.document.head.querySelector("title");
-          if (title) {
-            title.after(overrideScriptElement);
-            title.after(registerDownloadScriptElement);
-          } else {
-            window.document.head.append(overrideScriptElement);
+          // Inject the TIND override scripts. They must load before PDF.js
+          // dispatches "webviewerloaded", so anchor them right after <title>
+          // in <head>. PDF.js viewer.html has always shipped a <title>; if it
+          // ever stops, fail loudly rather than silently dropping the overrides.
+          const title = document.head?.querySelector("title");
+          if (!title) {
+            callback(
+              new Error(
+                "viewer.html has no <head><title> to anchor the TIND override " +
+                  "scripts after. PDF.js viewer.html structure changed; update " +
+                  "the script-injection step in gulpfile.mjs for this version.",
+              ),
+            );
+            return;
           }
+
+          const overrideScripts = [
+            "only-register-download.js",
+            "override-pdf-viewer-application-open.js",
+          ].map((scriptSrc) => {
+            const script = document.createElement("script");
+            script.src = scriptSrc;
+            return script;
+          });
+          title.after(...overrideScripts);
 
           this.push(
             Object.assign(file.clone({ contents: false }), {
               path: join(file.base, "pdf_viewer.html"),
-              contents: Buffer.from(
-                window.document.documentElement.outerHTML,
-                "utf8",
-              ),
+              contents: Buffer.from(document.documentElement.outerHTML, "utf8"),
             }),
           );
 
-          const secondaryPrint =
-            window.document.getElementById("secondaryPrint");
-
-          if (secondaryPrint) {
-            secondaryPrint.style = "display:none !important";
-          }
-
-          const secondaryDownload =
-            window.document.getElementById("secondaryDownload");
-
-          if (secondaryDownload) {
-            secondaryDownload.style = "display:none !important";
-          }
-
-          const print = window.document.getElementById("printButton");
-
-          if (print) {
-            print.style = "display:none !important";
-          }
-
-          const download = window.document.getElementById("downloadButton");
-
-          if (download) {
-            download.style = "display:none !important";
+          // View-only variant: hide the print/download controls. Every ID
+          // below is also relied on by only-register-download.js and/or the
+          // view-only screenshot; if PDF.js renames or removes any, the control
+          // would silently stay visible — so fail the build instead.
+          const viewOnlyHiddenIds = [
+            "secondaryPrint",
+            "secondaryDownload",
+            "printButton",
+            "downloadButton",
+          ];
+          const missingIds = viewOnlyHiddenIds.filter((id) => {
+            const element = document.getElementById(id);
+            if (!element) {
+              return true;
+            }
+            element.style = "display:none !important";
+            return false;
+          });
+          if (missingIds.length > 0) {
+            callback(
+              new Error(
+                `viewer.html is missing expected control element(s): ` +
+                  `${missingIds.join(", ")}. The view-only overlay can no longer ` +
+                  `hide them; update gulpfile.mjs for this PDF.js version.`,
+              ),
+            );
+            return;
           }
 
           this.push(
             Object.assign(file.clone({ contents: false }), {
               path: join(file.base, "pdf_viewer_view_only.html"),
-              contents: Buffer.from(
-                window.document.documentElement.outerHTML,
-                "utf8",
-              ),
+              contents: Buffer.from(document.documentElement.outerHTML, "utf8"),
             }),
           );
 
@@ -250,8 +284,53 @@ export function createPackageLockInDist() {
   });
 }
 
+// Build-time guard for the runtime overlays (src/web/*.js), whose hook points
+// are not visible to the DOM transform above: the "webviewerloaded" event and
+// the global PDFViewerApplication that override-pdf-viewer-application-open.js
+// hooks, plus the open() options it injects. If a PDF.js upgrade renames or
+// drops any of these, the overlay silently no-ops in the browser. Assert they
+// still exist in the built output so the upgrade fails here, not in production.
+const requiredHookTokens = [
+  {
+    file: join(distDirectory, "web/viewer.mjs"),
+    tokens: ["webviewerloaded", "PDFViewerApplication"],
+    reason: "override-pdf-viewer-application-open.js hooks these.",
+  },
+  {
+    file: join(distDirectory, "build/pdf.mjs"),
+    tokens: ["rangeChunkSize", "disableStream", "disableAutoFetch"],
+    reason: "override-pdf-viewer-application-open.js injects these into open().",
+  },
+];
+
+export async function verifyViewerHooks() {
+  const problems = [];
+  for (const { file, tokens, reason } of requiredHookTokens) {
+    let contents;
+    try {
+      contents = await readFile(file, "utf8");
+    } catch (error) {
+      problems.push(`cannot read built file ${file}: ${error.message}`);
+      continue;
+    }
+    for (const token of tokens) {
+      if (!contents.includes(token)) {
+        problems.push(`"${token}" not found in ${file} — ${reason}`);
+      }
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(
+      `PDF.js ${pdfJsVersion} build is missing TIND overlay hook points:\n` +
+        problems.map((problem) => `  - ${problem}`).join("\n") +
+        `\nUpdate src/web/*.js and gulpfile.mjs for this PDF.js version.`,
+    );
+  }
+}
+
 export const completeBuild = series(
   build,
+  verifyViewerHooks,
   parallel(
     transformViewer,
     series(

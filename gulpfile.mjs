@@ -206,34 +206,36 @@ export function transformViewer() {
             }),
           );
 
-          // View-only variant: hide the print/download controls. Every ID
-          // below is also relied on by only-register-download.js and/or the
-          // view-only screenshot; if PDF.js renames or removes any, the control
-          // would silently stay visible — so fail the build instead.
-          const viewOnlyHiddenIds = [
+          // View-only variant: view-only.js switches off PDF.js's download and
+          // print support, which hides these controls and their keyboard
+          // shortcuts. Don't hide them with inline style attributes instead:
+          // viewer.html's Content-Security-Policy has no 'unsafe-inline' in
+          // style-src, so browsers ignore them. The IDs are also relied on by
+          // only-register-download.js and/or the view-only screenshot; if
+          // PDF.js renames or removes any, fail the build.
+          const viewOnlyControlIds = [
             "secondaryPrint",
             "secondaryDownload",
             "printButton",
             "downloadButton",
           ];
-          const missingIds = viewOnlyHiddenIds.filter((id) => {
-            const element = document.getElementById(id);
-            if (!element) {
-              return true;
-            }
-            element.style = "display:none !important";
-            return false;
-          });
+          const missingIds = viewOnlyControlIds.filter(
+            (id) => !document.getElementById(id),
+          );
           if (missingIds.length > 0) {
             callback(
               new Error(
                 `viewer.html is missing expected control element(s): ` +
                   `${missingIds.join(", ")}. The view-only overlay can no longer ` +
-                  `hide them; update gulpfile.mjs for this PDF.js version.`,
+                  `account for them; update gulpfile.mjs for this PDF.js version.`,
               ),
             );
             return;
           }
+
+          const viewOnlyScript = document.createElement("script");
+          viewOnlyScript.src = "view-only.js";
+          overrideScripts.at(-1).after(viewOnlyScript);
 
           this.push(
             Object.assign(file.clone({ contents: false }), {
@@ -301,6 +303,16 @@ const requiredHookTokens = [
     file: join(distDirectory, "build/pdf.mjs"),
     tokens: ["rangeChunkSize", "disableStream", "disableAutoFetch"],
     reason: "override-pdf-viewer-application-open.js injects these into open().",
+  },
+  {
+    file: join(distDirectory, "web/viewer.mjs"),
+    tokens: [
+      "PDFViewerApplicationOptions",
+      "supportsDownloading",
+      "supportsPrinting",
+      "disablePreferences",
+    ],
+    reason: "view-only.js sets these to switch off download and print.",
   },
 ];
 
